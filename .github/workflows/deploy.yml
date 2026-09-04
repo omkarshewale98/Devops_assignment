@@ -1,0 +1,68 @@
+name: Deploy to Windows Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy website to IIS
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Download repository files
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configure SSH private key
+      - name: Configure SSH
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      # 3. Test SSH connection to Windows Server
+      - name: Test SSH connection
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            "$SERVER_USER@$SERVER_HOST" \
+            "whoami"
+
+      # 4. Deploy index.html to IIS web root
+      - name: Deploy website
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            index.html \
+            "$SERVER_USER@$SERVER_HOST:C:/inetpub/app/index.html"
+
+      # 5. Verify deployed file exists
+      - name: Verify deployment
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            "$SERVER_USER@$SERVER_HOST" \
+            "powershell -NoProfile -Command \"Get-Item 'C:\inetpub\app\index.html'\""
+
+      # 6. Check website through IIS
+      - name: Health check
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        run: |
+          curl --fail --retry 3 --retry-delay 5 "http://$SERVER_HOST/"
